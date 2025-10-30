@@ -1,0 +1,87 @@
+name: React CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+    
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Step 2: Set up Node.js
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      
+      # Step 3: Cache dependencies for faster builds
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: npm ci
+      
+      # Step 5: Run linting (optional)
+      - name: Run ESLint
+        run: npm run lint --if-present
+        continue-on-error: true
+      
+      # Step 6: Run unit tests
+      - name: Run tests
+        run: npm test -- --coverage --watchAll=false
+      
+      # Step 7: Build the React app
+      - name: Build application
+        run: npm run build
+      
+      # Step 8: Upload build artifacts
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        if: success()
+        with:
+          name: build-${{ matrix.node-version }}
+          path: build/
+          retention-days: 30
+  
+  # Optional: Publish Docker image
+  publish-docker:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: false  # Set to true with proper credentials for actual push
+          tags: my-registry/react-app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
